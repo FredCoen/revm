@@ -24,7 +24,7 @@ all = "warn"
 [dependencies]
 # revm
 primitives.workspace = true
-wiring.workspace = true
+context-interface.workspace = true
 specification.workspace = true
 
 # static precompile sets.
@@ -37,6 +37,9 @@ secp256k1 = { version = ">=0.28, <=0.29", default-features = false, features = [
     "recovery",
     "rand",
     "global-context",
+], optional = true }
+libsecp256k1 = { version = "0.7", default-features = false, package = "libsecp256k1", features = [
+    "static-context",
 ], optional = true }
 
 # SHA2-256 and RIPEMD-160
@@ -67,10 +70,9 @@ p256 = { version = "0.13.2", optional = true, default-features = false, features
 
 # utils
 cfg-if = { version = "1.0", default-features = false }
-dyn-clone = "1.0"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion.workspace = true
 rand = { version = "0.8", features = ["std"] }
 eyre = "0.6.12"
 rstest = "0.22.0"
@@ -88,6 +90,7 @@ std = [
     "sha2/std",
     "c-kzg?/std",
     "secp256k1?/std",
+    "libsecp256k1?/std",
 ]
 hashbrown = ["primitives/hashbrown"]
 asm-keccak = ["primitives/asm-keccak"]
@@ -98,16 +101,17 @@ secp256r1 = ["dep:p256"]
 # These libraries may not work on all no_std platforms as they depend on C.
 
 # Enables the KZG point evaluation precompile.
-c-kzg = ["dep:c-kzg", "wiring/c-kzg"]
+c-kzg = ["dep:c-kzg"]
 # `kzg-rs` is not audited but useful for `no_std` environment, use it with causing and default to `c-kzg` if possible.
-kzg-rs = ["dep:kzg-rs", "wiring/kzg-rs"]
+kzg-rs = ["dep:kzg-rs"]
 
-portable = ["c-kzg", "c-kzg?/portable"]
+portable = ["c-kzg"]
 
 # Use `secp256k1` as a faster alternative to `k256`.
 # The problem that `secp256k1` has is it fails to build for `wasm` target on Windows and Mac as it is c lib.
 # In Linux it passes. If you don't require to build wasm on win/mac, it is safe to use it and it is enabled by default.
 secp256k1 = ["dep:secp256k1"]
+libsecp256k1 = ["dep:libsecp256k1"]
 
 # Enables the BLS12-381 precompiles.
 blst = ["dep:blst"]

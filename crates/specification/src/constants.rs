@@ -1,4 +1,4 @@
-/// EVM interpreter stack limit.
+/// EVM interpreter stack limit
 pub const STACK_LIMIT: usize = 1024;
 
 /// EIP-170: Contract code size limit
@@ -10,3 +10,6 @@ pub const MAX_CODE_SIZE: usize = 0x6000;
 ///
 /// Limit of maximum initcode size is `2 * MAX_CODE_SIZE`.
 pub const MAX_INITCODE_SIZE: usize = 2 * MAX_CODE_SIZE;
+
+/// EVM call stack limit
+pub const CALL_STACK_LIMIT: u64 = 1024;

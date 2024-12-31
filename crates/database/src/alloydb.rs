@@ -1,14 +1,38 @@
 pub use alloy_eips::BlockId;
 use alloy_provider::{
-    network::{BlockResponse, HeaderResponse},
+    network::{
+        primitives::{BlockTransactionsKind, HeaderResponse},
+        BlockResponse,
+    },
     Network, Provider,
 };
 use alloy_transport::{Transport, TransportError};
-use database_interface::async_db::DatabaseAsyncRef;
+use core::error::Error;
+use database_interface::{async_db::DatabaseAsyncRef, DBErrorMarker};
 use primitives::{Address, B256, U256};
 use state::{AccountInfo, Bytecode};
+use std::fmt::Display;
 
-/// An alloy-powered REVM [database_interface::Database].
+#[derive(Debug)]
+pub struct DBTransportError(pub TransportError);
+
+impl DBErrorMarker for DBTransportError {}
+
+impl Display for DBTransportError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Transport error: {}", self.0)
+    }
+}
+
+impl Error for DBTransportError {}
+
+impl From<TransportError> for DBTransportError {
+    fn from(e: TransportError) -> Self {
+        Self(e)
+    }
+}
+
+/// An alloy-powered REVM [Database][database_interface::Database].
 ///
 /// When accessing the database, it'll use the given provider to fetch the corresponding account's data.
 #[derive(Debug)]
@@ -17,27 +41,27 @@ pub struct AlloyDB<T: Transport + Clone, N: Network, P: Provider<T, N>> {
     provider: P,
     /// The block number on which the queries will be based on.
     block_number: BlockId,
-    _marker: std::marker::PhantomData<fn() -> (T, N)>,
+    _marker: core::marker::PhantomData<fn() -> (T, N)>,
 }
 
 impl<T: Transport + Clone, N: Network, P: Provider<T, N>> AlloyDB<T, N, P> {
-    /// Create a new AlloyDB instance, with a [Provider] and a block.
+    /// Creates a new AlloyDB instance, with a [Provider] and a block.
     pub fn new(provider: P, block_number: BlockId) -> Self {
         Self {
             provider,
             block_number,
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 
-    /// Set the block number on which the queries will be based on.
+    /// Sets the block number on which the queries will be based on.
     pub fn set_block_number(&mut self, block_number: BlockId) {
         self.block_number = block_number;
     }
 }
 
 impl<T: Transport + Clone, N: Network, P: Provider<T, N>> DatabaseAsyncRef for AlloyDB<T, N, P> {
-    type Error = TransportError;
+    type Error = DBTransportError;
 
     async fn basic_async_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         let nonce = self
@@ -67,7 +91,7 @@ impl<T: Transport + Clone, N: Network, P: Provider<T, N>> DatabaseAsyncRef for A
         let block = self
             .provider
             // SAFETY: We know number <= u64::MAX, so we can safely convert it to u64
-            .get_block_by_number(number.into(), false)
+            .get_block_by_number(number.into(), BlockTransactionsKind::Hashes)
             .await?;
         // SAFETY: If the number is given, the block is supposed to be finalized, so unwrapping is safe.
         Ok(B256::new(*block.unwrap().header().hash()))
@@ -79,10 +103,11 @@ impl<T: Transport + Clone, N: Network, P: Provider<T, N>> DatabaseAsyncRef for A
     }
 
     async fn storage_async_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        self.provider
+        Ok(self
+            .provider
             .get_storage_at(address, index)
             .block_id(self.block_number)
-            .await
+            .await?)
     }
 }
 

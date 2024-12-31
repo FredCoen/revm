@@ -10,14 +10,12 @@ use alloy_sol_macro::sol;
 use alloy_sol_types::SolCall;
 use database::CacheDB;
 use revm::{
+    context_interface::result::{ExecutionResult, Output},
     database_interface::EmptyDB,
+    handler::EthHandler,
     primitives::{address, hex, keccak256, Address, Bytes, TxKind, B256, U256},
     state::{AccountInfo, Bytecode},
-    wiring::{
-        result::{ExecutionResult, Output},
-        EthereumWiring,
-    },
-    Evm,
+    Context, MainEvm,
 };
 
 use std::fs::File;
@@ -32,8 +30,6 @@ sol! {
     }
 }
 
-type EthereumCacheDbWiring = EthereumWiring<CacheDB<EmptyDB>, ()>;
-
 pub fn run() {
     let (seed, iterations) = try_init_env_vars().expect("Failed to parse env vars");
 
@@ -41,15 +37,13 @@ pub fn run() {
 
     let db = init_db();
 
-    let mut evm = Evm::<EthereumCacheDbWiring>::builder()
-        .modify_tx_env(|tx| {
-            tx.caller = address!("1000000000000000000000000000000000000000");
-            tx.transact_to = TxKind::Call(BURNTPIX_MAIN_ADDRESS);
-            tx.data = run_call_data.clone().into();
-        })
-        .with_db(db)
-        .with_default_ext_ctx()
-        .build();
+    let context = Context::builder().with_db(db).modify_tx_chained(|tx| {
+        tx.caller = address!("1000000000000000000000000000000000000000");
+        tx.transact_to = TxKind::Call(BURNTPIX_MAIN_ADDRESS);
+        tx.data = run_call_data.clone().into();
+        tx.gas_limit = u64::MAX;
+    });
+    let mut evm = MainEvm::new(context, EthHandler::default());
 
     let started = Instant::now();
     let tx_result = evm.transact().unwrap().result;
@@ -67,11 +61,11 @@ pub fn run() {
         _ => unreachable!("Execution failed: {:?}", tx_result),
     };
 
-    // remove returndata offset and length from output
+    // Remove returndata offset and length from output
     let returndata_offset = 64;
     let data = &return_data[returndata_offset..];
 
-    // remove trailing zeros
+    // Remove trailing zeros
     let trimmed_data = data
         .split_at(data.len() - data.iter().rev().filter(|&x| *x == 0).count())
         .0;
@@ -107,7 +101,8 @@ fn try_from_hex_to_u32(hex: &str) -> Result<u32, Box<dyn Error>> {
     u32::from_str_radix(trimmed, 16).map_err(|e| format!("Failed to parse hex: {}", e).into())
 }
 
-fn insert_account_info(cache_db: &mut CacheDB<EmptyDB>, addr: Address, code: Bytes) {
+fn insert_account_info(cache_db: &mut CacheDB<EmptyDB>, addr: Address, code: &str) {
+    let code = Bytes::from(hex::decode(code).unwrap());
     let code_hash = hex::encode(keccak256(&code));
     let account_info = AccountInfo::new(
         U256::from(0),
@@ -121,25 +116,13 @@ fn insert_account_info(cache_db: &mut CacheDB<EmptyDB>, addr: Address, code: Byt
 fn init_db() -> CacheDB<EmptyDB> {
     let mut cache_db = CacheDB::new(EmptyDB::default());
 
-    insert_account_info(
-        &mut cache_db,
-        BURNTPIX_ADDRESS_ONE,
-        BURNTPIX_BYTECODE_ONE.clone(),
-    );
-    insert_account_info(
-        &mut cache_db,
-        BURNTPIX_MAIN_ADDRESS,
-        BURNTPIX_BYTECODE_TWO.clone(),
-    );
-    insert_account_info(
-        &mut cache_db,
-        BURNTPIX_ADDRESS_TWO,
-        BURNTPIX_BYTECODE_THREE.clone(),
-    );
+    insert_account_info(&mut cache_db, BURNTPIX_ADDRESS_ONE, BURNTPIX_BYTECODE_ONE);
+    insert_account_info(&mut cache_db, BURNTPIX_MAIN_ADDRESS, BURNTPIX_BYTECODE_TWO);
+    insert_account_info(&mut cache_db, BURNTPIX_ADDRESS_TWO, BURNTPIX_BYTECODE_THREE);
     insert_account_info(
         &mut cache_db,
         BURNTPIX_ADDRESS_THREE,
-        BURNTPIX_BYTECODE_FOUR.clone(),
+        BURNTPIX_BYTECODE_FOUR,
     );
 
     cache_db
